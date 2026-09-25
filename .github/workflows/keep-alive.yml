@@ -2,8 +2,8 @@ name: Keep Render Backend Alive
 
 on:
   schedule:
-    # Runs every 10 minutes (Render sleeps after 15 mins of inactivity)
-    - cron: '*/10 * * * *'
+    # Runs every 5 minutes so Render (which sleeps after 15 mins) NEVER spins down
+    - cron: '*/5 * * * *'
   workflow_dispatch: # Allows manual trigger from the GitHub Actions UI to test anytime
 
 jobs:
@@ -12,15 +12,13 @@ jobs:
     steps:
       - name: Ping Backend Server
         env:
-          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL || secrets.BACKEND_URL }}
+          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL || secrets.BACKEND_URL || 'https://ai-recruitment-platform-2iwv.onrender.com' }}
         run: |
           TARGET="${RENDER_BACKEND_URL}"
           
-          # Check if secret was provided
+          # Default to live production Render deployment if no secret was supplied
           if [ -z "$TARGET" ]; then
-            echo "ERROR: Neither RENDER_BACKEND_URL nor BACKEND_URL secret is set in GitHub Repository Secrets!"
-            echo "Please go to Repo Settings -> Secrets and variables -> Actions -> Repository Secrets and add RENDER_BACKEND_URL."
-            exit 1
+            TARGET="https://ai-recruitment-platform-2iwv.onrender.com"
           fi
 
           # Strip trailing slash if present
@@ -31,19 +29,26 @@ jobs:
             TARGET="https://${TARGET}"
           fi
 
-          ENDPOINT="${TARGET}/health"
-          echo "Pinging backend health endpoint..."
+          echo "Target Backend: ${TARGET}"
 
-          # Curl with follow-redirects (-L), show errors (-S), and output response details
-          RESPONSE=$(curl -sSL -w "\nHTTP_STATUS:%{http_code}" --max-time 60 "$ENDPOINT")
-          STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
-          BODY=$(echo "$RESPONSE" | grep -v "HTTP_STATUS")
+          # 1. Ping /health endpoint
+          HEALTH_ENDPOINT="${TARGET}/health"
+          echo "Pinging ${HEALTH_ENDPOINT}..."
+          HEALTH_RESP=$(curl -sSL -w "\nHTTP_STATUS:%{http_code}" --max-time 60 "$HEALTH_ENDPOINT")
+          STATUS=$(echo "$HEALTH_RESP" | grep "HTTP_STATUS" | cut -d':' -f2)
+          BODY=$(echo "$HEALTH_RESP" | grep -v "HTTP_STATUS")
+          echo "Health Status Code: $STATUS"
+          echo "Health Body: $BODY"
 
-          echo "Response Status Code: $STATUS"
-          echo "Response Body: $BODY"
+          # 2. Ping /students/target-roles endpoint to prime DB & route cache
+          ROLES_ENDPOINT="${TARGET}/students/target-roles"
+          echo "Pinging ${ROLES_ENDPOINT}..."
+          ROLES_RESP=$(curl -sSL -w "\nHTTP_STATUS:%{http_code}" --max-time 60 "$ROLES_ENDPOINT")
+          ROLES_STATUS=$(echo "$ROLES_RESP" | grep "HTTP_STATUS" | cut -d':' -f2)
+          echo "Roles Status Code: $ROLES_STATUS"
 
           if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
-            echo "SUCCESS: Render backend is awake and healthy!"
+            echo "SUCCESS: Render backend is awake, hot, and healthy!"
           else
-            echo "WARNING: Backend responded with status $STATUS. (If it was sleeping, it has received the wake-up request)."
+            echo "NOTICE: Backend responded with status $STATUS. (Wake-up signal delivered to container)."
           fi

@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { BrandMark } from "../ui/brand";
+import { InlineSpinner, Preloader } from "../ui/preloader";
 
 const API_URL = "/api";
 
@@ -93,10 +94,16 @@ export default function StudentAccessPage() {
     Partial<Record<RegistrationField, string>>
   >({});
   const [submitting, setSubmitting] = useState(false);
+  const [preloaderMessage, setPreloaderMessage] = useState(
+    "Setting up your workspace...",
+  );
 
-  // Pre-warm the dashboard route bundle for instant, smooth navigation
+  // Pre-warm the dashboard route bundle and wake up backend immediately
   useEffect(() => {
     router.prefetch("/student/dashboard");
+    fetch(`${API_URL}/health`, { cache: "no-store" }).catch(() => {});
+    fetch(`${API_URL}/backend-config`, { cache: "no-store" }).catch(() => {});
+    fetch(`${API_URL}/students/target-roles`, { cache: "no-store" }).catch(() => {});
   }, [router]);
 
   function openDashboard(student: { id: number; name: string;[key: string]: unknown }) {
@@ -110,6 +117,7 @@ export default function StudentAccessPage() {
 
   async function handleSignIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setPreloaderMessage("Signing in to your student workspace...");
     setSubmitting(true);
     setMessage("");
     try {
@@ -163,6 +171,9 @@ export default function StudentAccessPage() {
       return;
     }
 
+    setPreloaderMessage(
+      "Creating your student profile & initializing candidate workspace...",
+    );
     setSubmitting(true);
     try {
       const response = await fetch(`${API_URL}/students/register`, {
@@ -305,11 +316,12 @@ export default function StudentAccessPage() {
                   />
                 </label>
                 <button
-                  className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60"
+                  className="flex items-center justify-center gap-2.5 w-full rounded-xl bg-indigo-600 px-4 py-3.5 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60 transition-all cursor-pointer"
                   disabled={submitting}
                   type="submit"
                 >
-                  {submitting ? "Signing in..." : "Sign in"}
+                  {submitting && <InlineSpinner className="h-5 w-5 text-white" />}
+                  <span>{submitting ? "Signing in..." : "Sign in"}</span>
                 </button>
               </form>
             ) : (
@@ -401,11 +413,12 @@ export default function StudentAccessPage() {
                   ))}
                 </div>
                 <button
-                  className="w-full rounded-xl bg-indigo-600 px-4 py-3 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60"
+                  className="flex items-center justify-center gap-2.5 w-full rounded-xl bg-indigo-600 px-4 py-3.5 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60 transition-all cursor-pointer"
                   disabled={submitting}
                   type="submit"
                 >
-                  {submitting ? "Creating profile..." : "Create profile"}
+                  {submitting && <InlineSpinner className="h-5 w-5 text-white" />}
+                  <span>{submitting ? "Creating profile..." : "Create profile"}</span>
                 </button>
               </form>
             )}
@@ -418,6 +431,13 @@ export default function StudentAccessPage() {
           </section>
         </div>
       </div>
+
+      <Preloader
+        show={submitting}
+        title="Please wait…"
+        message={preloaderMessage}
+        isColdStartAware={true}
+      />
     </main>
   );
 }

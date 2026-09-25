@@ -12,6 +12,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import { checkBackendHealth } from "../../backend-health";
 import { BrandMark } from "../../ui/brand";
+import { InlineSpinner, Preloader } from "../../ui/preloader";
 
 const API_URL = "/api";
 
@@ -1045,11 +1046,12 @@ function StudentDashboardContent() {
               />
             </label>
             <button
-              className="rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60"
+              className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60 transition-all cursor-pointer"
               disabled={uploadingResume || backendStatus !== "ok"}
               type="submit"
             >
-              {uploadingResume ? "Analyzing..." : "Analyze resume"}
+              {uploadingResume && <InlineSpinner className="h-5 w-5 text-white" />}
+              <span>{uploadingResume ? "Analyzing..." : "Analyze resume"}</span>
             </button>
           </form>
 
@@ -1478,6 +1480,17 @@ function StudentDashboardContent() {
           </aside>
         </>
       )}
+
+      <Preloader
+        show={uploadingResume || applyingJobId !== null}
+        title="Please wait…"
+        message={
+          uploadingResume
+            ? "Analyzing resume structure, keywords, and role match..."
+            : "Evaluating qualifications & submitting your application..."
+        }
+        isColdStartAware={true}
+      />
     </main>
   );
 }
