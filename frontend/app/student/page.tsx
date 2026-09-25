@@ -99,7 +99,7 @@ export default function StudentAccessPage() {
     router.prefetch("/student/dashboard");
   }, [router]);
 
-  function openDashboard(student: { id: number; name: string; [key: string]: unknown }) {
+  function openDashboard(student: { id: number; name: string;[key: string]: unknown }) {
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem("studentId", String(student.id));
       window.sessionStorage.setItem("studentName", student.name || "");
@@ -248,11 +248,10 @@ export default function StudentAccessPage() {
                 ["sign-up", "Create profile"],
               ].map(([value, label]) => (
                 <button
-                  className={`rounded-lg px-4 py-2.5 text-sm font-bold ${
-                    mode === value
-                      ? "bg-white text-indigo-700 shadow-sm"
-                      : "text-slate-500"
-                  }`}
+                  className={`rounded-lg px-4 py-2.5 text-sm font-bold ${mode === value
+                    ? "bg-white text-indigo-700 shadow-sm"
+                    : "text-slate-500"
+                    }`}
                   key={value}
                   onClick={() => {
                     setMode(value as "sign-in" | "sign-up");
@@ -337,9 +336,9 @@ export default function StudentAccessPage() {
                     <label
                       className={
                         key === "skills" ||
-                        key === "linkedin_url" ||
-                        key === "github_url" ||
-                        key === "leetcode_url"
+                          key === "linkedin_url" ||
+                          key === "github_url" ||
+                          key === "leetcode_url"
                           ? "block sm:col-span-2"
                           : "block"
                       }
@@ -389,7 +388,7 @@ export default function StudentAccessPage() {
                         }
                         value={
                           registration[
-                            String(key) as keyof typeof registration
+                          String(key) as keyof typeof registration
                           ]
                         }
                       />
