@@ -1,0 +1,28 @@
+name: Keep Render Backend Alive
+
+on:
+  schedule:
+    # Runs every 12 minutes (Render sleeps after 15 minutes of inactivity)
+    - cron: '*/12 * * * *'
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions UI to test anytime
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Server
+        env:
+          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
+        run: |
+          # If secret is set in GitHub Repository Secrets, use it. Otherwise replace below:
+          TARGET_URL="${RENDER_BACKEND_URL:-https://your-render-backend-url.onrender.com}"
+          
+          echo "Pinging: ${TARGET_URL}/health"
+          RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "${TARGET_URL}/health")
+          echo "HTTP Status Code: ${RESPONSE_CODE}"
+          
+          if [ "$RESPONSE_CODE" -ge 200 ] && [ "$RESPONSE_CODE" -lt 400 ]; then
+            echo "Success: Render backend is awake and responding."
+          else
+            echo "Warning: Received status code ${RESPONSE_CODE}. If the server was sleeping, this ping initiated its wake-up."
+          fi
