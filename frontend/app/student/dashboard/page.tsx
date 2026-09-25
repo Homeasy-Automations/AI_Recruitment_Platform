@@ -6,6 +6,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -153,6 +154,7 @@ function StudentDashboardContent() {
     return "";
   });
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const resumeInputRef = useRef<HTMLInputElement>(null);
   const [resumeResult, setResumeResult] = useState<ResumeResult | null>(null);
   const [resumeMessage, setResumeMessage] = useState("");
   const [uploadingResume, setUploadingResume] = useState(false);
@@ -349,6 +351,9 @@ function StudentDashboardContent() {
       setResumeResult(result);
       setResumeMessage(result.message);
       setResumeFile(null);
+      if (resumeInputRef.current) {
+        resumeInputRef.current.value = "";
+      }
       await loadDashboard(studentId);
     } catch (error) {
       setResumeMessage(
@@ -1035,15 +1040,20 @@ function StudentDashboardContent() {
             <label className="block">
               <span className="mb-1 block text-sm font-medium">Resume PDF</span>
               <input
+                ref={resumeInputRef}
                 accept="application/pdf,.pdf"
                 className="block w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-100 file:px-3 file:py-1.5 file:font-semibold file:text-indigo-700"
-                key={resumeFile ? "selected" : "empty"}
                 onChange={(event) =>
                   setResumeFile(event.target.files?.[0] || null)
                 }
                 required
                 type="file"
               />
+              {resumeFile && (
+                <span className="mt-1.5 block text-xs font-semibold text-indigo-600 truncate">
+                  Selected: {resumeFile.name} ({(resumeFile.size / 1024).toFixed(0)} KB)
+                </span>
+              )}
             </label>
             <button
               className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-5 py-3 font-bold text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60 transition-all cursor-pointer"
