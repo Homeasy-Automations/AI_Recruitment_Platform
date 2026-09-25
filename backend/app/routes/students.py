@@ -260,6 +260,17 @@ def verify_password(password: str, stored_hash: str | None) -> bool:
     return hmac.compare_digest(calculated_digest, expected_digest)
 
 
+# Helper for boundary-aware keyword and phrase matching in resume text.
+def _matches_keyword(text: str, keyword: str) -> bool:
+    """Accurately match a keyword or phrase respecting word boundaries."""
+    kw = keyword.strip().lower()
+    if not kw:
+        return False
+    escaped = re.escape(kw)
+    pattern = rf"(?i)(?:\b|(?<=[^a-zA-Z0-9])){escaped}(?:\b|(?=[^a-zA-Z0-9]))"
+    return bool(re.search(pattern, text))
+
+
 # Calculates general ATS readiness without using a particular job role.
 def calculate_resume_score(
     text: str,
@@ -270,105 +281,146 @@ def calculate_resume_score(
     recommendations: list[str] = []
 
     def has_section(*headings: str) -> bool:
+        # Check standard line-anchored regex with prefixes (markdown, bullets, numbering)
         alternatives = "|".join(re.escape(heading) for heading in headings)
-        return bool(
-            re.search(
-                rf"(?im)^\s*(?:{alternatives})\s*:?[ \t]*$",
-                text,
-            )
-        )
+        if re.search(
+            rf"(?im)^\s*(?:[#*•\-–—\d\.]+\s*)?(?:{alternatives})(?:[\s/&,]+[a-z0-9]+)*\s*[:\-_|]?[ \t]*$",
+            text,
+        ):
+            return True
+        # Also inspect short standalone lines (< 45 chars) that match the heading keyword
+        for line in text.splitlines():
+            clean = line.strip().lower()
+            if 2 <= len(clean) <= 45 and not clean.endswith((".", ";")):
+                for heading in headings:
+                    if re.search(rf"\b{re.escape(heading.lower())}\b", clean):
+                        return True
+        return False
 
     # 1. Contact details and professional links: 10 points.
     contact_score = 0
-    if re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", text):
+    if re.search(r"\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+\b", text):
         contact_score += 4
     else:
         recommendations.append("Add a professional email address.")
 
     compact_text = re.sub(r"[\s()-]", "", text)
-    if re.search(r"(?:\+?91)?[6-9]\d{9}", compact_text):
+    has_phone = bool(
+        re.search(r"(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b", text)
+        or re.search(r"(?:\+?91[\s.-]?)?[6-9]\d{9}\b", compact_text)
+        or re.search(r"\+\d{1,4}[-.\s]?\d{6,12}\b", text)
+    )
+    if has_phone:
         contact_score += 3
     else:
-        recommendations.append("Add a valid phone number.")
+        recommendations.append("Add a valid contact phone number.")
 
     if "linkedin.com" in normalized_text:
         contact_score += 2
     else:
         recommendations.append("Add your LinkedIn profile link.")
 
-    if any(link in normalized_text for link in ("github.com", "portfolio", "behance.net")):
+    dev_links = (
+        "github.com", "gitlab.com", "portfolio", "behance.net",
+        "dribbble.com", "leetcode.com", "kaggle.com", "hackerrank.com",
+        "medium.com", "dev.to",
+    )
+    if any(link in normalized_text for link in dev_links) or re.search(r"https?://[a-zA-Z0-9.-]+\.(?:me|dev|io|tech)\b", normalized_text):
         contact_score += 1
 
     # 2. Standard ATS section headings: 20 points.
     section_rules = {
-        "Summary": (3, ("summary", "professional summary", "career objective", "objective")),
-        "Education": (4, ("education", "academic background", "academics")),
-        "Skills": (4, ("skills", "technical skills", "core competencies")),
-        "Projects": (4, ("projects", "academic projects", "personal projects")),
-        "Experience": (4, ("experience", "work experience", "internships", "internship")),
-        "Certifications": (1, ("certifications", "certificates", "achievements", "awards")),
+        "Summary": (3, ("summary", "professional summary", "career summary", "about me", "profile", "career objective", "objective")),
+        "Education": (4, ("education", "academic background", "academics", "qualifications")),
+        "Skills": (4, ("skills", "technical skills", "core competencies", "skills & tools", "key skills", "technical stack", "areas of expertise")),
+        "Projects": (4, ("projects", "academic projects", "personal projects", "key projects", "notable projects")),
+        "Experience": (4, ("experience", "work experience", "internships", "internship", "employment history", "professional experience")),
+        "Certifications": (1, ("certifications", "certificates", "achievements", "awards", "honors", "licenses")),
     }
     section_score = 0
-    found_sections = 0
     for section, (points, headings) in section_rules.items():
         if has_section(*headings):
             section_score += points
-            found_sections += 1
         elif section in {"Summary", "Education", "Skills", "Projects", "Experience"}:
             recommendations.append(f"Add a clearly labelled {section} section.")
 
-    # 3. Appropriate resume length: 15 points.
-    if 400 <= word_count <= 850:
+    # 3. Appropriate resume length & page count: 15 points.
+    if 400 <= word_count <= 900:
         length_score = 12
-    elif 250 <= word_count < 400 or 851 <= word_count <= 1000:
-        length_score = 8
-    elif 150 <= word_count < 250 or 1001 <= word_count <= 1200:
-        length_score = 4
+    elif 280 <= word_count < 400 or 901 <= word_count <= 1050:
+        length_score = 9
+    elif 180 <= word_count < 280 or 1051 <= word_count <= 1250:
+        length_score = 5
+    elif 100 <= word_count < 180 or word_count > 1250:
+        length_score = 2
     else:
         length_score = 0
-        recommendations.append("Keep the resume focused at roughly 400–850 words.")
+
+    if word_count < 350 or word_count > 950:
+        recommendations.append("Keep the resume focused at roughly 450-850 words for optimal density.")
 
     page_score = 3 if 1 <= page_count <= 2 else 1
     if page_count > 2:
-        recommendations.append("For an early-career profile, keep the resume to one or two pages.")
+        recommendations.append("For student and early-career profiles, keep the resume to 1 or 2 pages.")
 
     # 4. Evidence of impact and strong bullet writing: 20 points.
+    # Matches percentages, multipliers, user counts, scale, latency, and business metrics
     metric_matches = re.findall(
-        r"(?:₹|\$|€)?\s*\d+(?:\.\d+)?\s*(?:%|x|users?|clients?|projects?|hours?|days?|months?|records?|models?|accuracy|revenue|downloads?)",
+        r"(?:₹|\$|€|inr|usd)?\s*\b\d{1,3}(?:,\d{3})*(?:\.\d+)?\s*(?:%|x\b|percent\b|users?\b|clients?\b|customers?\b|projects?\b|hours?\b|days?\b|months?\b|weeks?\b|records?\b|models?\b|accuracy\b|revenue\b|downloads?\b|stars?\b|requests?\b|queries?\b|ms\b|sec\b|qps\b|rps\b|fps\b|k\b|m\b)",
         normalized_text,
     )
     metrics_score = min(len(metric_matches) * 2, 10)
-    if metrics_score < 4:
-        recommendations.append("Add measurable results, such as percentages, users, accuracy, time saved, or project scale.")
+    if metrics_score < 6:
+        recommendations.append("Add measurable outcomes (e.g., percentages, users served, latency reduced, accuracy, or project scale).")
 
     action_verbs = {
-        "achieved", "analyzed", "automated", "built", "created", "designed",
-        "developed", "implemented", "improved", "increased", "led", "managed",
-        "optimized", "reduced", "trained", "deployed",
+        "achieved", "analyzed", "architected", "automated", "built", "configured",
+        "created", "debugged", "deployed", "designed", "developed", "engineered",
+        "enhanced", "implemented", "improved", "increased", "integrated", "launched",
+        "led", "managed", "mentored", "migrated", "modeled", "optimized",
+        "orchestrated", "reduced", "refactored", "researched", "scaled",
+        "spearheaded", "streamlined", "trained",
     }
     used_action_verbs = sum(
-        1 for verb in action_verbs if re.search(rf"\b{verb}\b", normalized_text)
+        1 for verb in action_verbs if _matches_keyword(normalized_text, verb)
     )
     action_score = min(used_action_verbs, 5)
     if action_score < 3:
-        recommendations.append("Start more bullet points with strong action verbs such as Built, Developed, Improved, or Led.")
+        recommendations.append("Start bullet points with strong action verbs such as Built, Developed, Optimized, or Spearheaded.")
 
     bullet_count = sum(
-        1 for line in text.splitlines() if re.match(r"^\s*(?:[-*•▪●])\s+", line)
+        1 for line in text.splitlines()
+        if re.match(r"^\s*(?:[-*•▪●·➢✔✓⁃‣o]|\d+[\.\)]|[a-zA-Z][\.\)])\s+", line)
     )
-    bullet_score = 5 if bullet_count >= 5 else 3 if bullet_count >= 2 else 0
+    bullet_score = 5 if bullet_count >= 6 else 3 if bullet_count >= 2 else 0
     if bullet_score == 0:
-        recommendations.append("Use concise bullet points for projects and experience.")
+        recommendations.append("Use concise bullet points for projects and work experience.")
 
-    # 5. Technical and workplace skills supported by project language: 15 points.
+    # 5. Technical and workplace skills supported by implementation evidence: 15 points.
     skill_keywords = {
-        "python", "java", "javascript", "typescript", "react", "next.js", "node.js",
-        "fastapi", "django", "sql", "postgresql", "mongodb", "machine learning",
-        "deep learning", "nlp", "data analysis", "pandas", "numpy", "tensorflow",
-        "pytorch", "docker", "aws", "azure", "git", "github", "excel", "power bi",
-        "tableau", "communication", "leadership", "problem solving",
+        # Languages
+        "python", "java", "javascript", "typescript", "c++", "cpp", "c#", "go",
+        "golang", "rust", "ruby", "php", "swift", "kotlin", "sql", "r", "dart", "bash", "shell",
+        # Frontend & Mobile
+        "react", "react.js", "next.js", "nextjs", "vue", "angular", "svelte",
+        "tailwind", "tailwindcss", "html", "css", "bootstrap", "redux", "flutter", "react native",
+        # Backend & Systems
+        "node.js", "nodejs", "express", "fastapi", "django", "flask", "spring boot",
+        "nestjs", "graphql", "rest api", "microservices", "websockets",
+        # Data & Databases
+        "postgresql", "postgres", "mysql", "mongodb", "redis", "sqlite", "firebase",
+        # Cloud & DevOps
+        "docker", "kubernetes", "aws", "azure", "gcp", "ci/cd", "git", "github", "gitlab", "linux", "nginx",
+        # AI / ML & Analytics
+        "machine learning", "deep learning", "nlp", "computer vision", "pandas", "numpy",
+        "scikit-learn", "sklearn", "tensorflow", "pytorch", "keras", "huggingface", "llm",
+        "data analysis", "power bi", "powerbi", "tableau", "excel",
+        # Core Professional Competencies
+        "problem solving", "communication", "leadership", "agile", "scrum", "system design",
     }
-    found_skills = {skill for skill in skill_keywords if skill in normalized_text}
+    found_skills = {
+        skill for skill in skill_keywords if _matches_keyword(normalized_text, skill)
+    }
     if len(found_skills) >= 12:
         skills_score = 10
     elif len(found_skills) >= 8:
@@ -381,25 +433,32 @@ def calculate_resume_score(
         skills_score = 2
     else:
         skills_score = 0
-        recommendations.append("Add role-relevant technical and workplace skills.")
+        recommendations.append("Add role-relevant technical tools, frameworks, and core skills.")
 
-    evidence_words = {"built", "developed", "implemented", "deployed", "designed", "analyzed"}
+    evidence_words = {
+        "built", "developed", "implemented", "deployed", "designed",
+        "analyzed", "automated", "integrated", "architected", "optimized",
+    }
     evidence_score = min(
-        sum(1 for word in evidence_words if re.search(rf"\b{word}\b", normalized_text)),
+        sum(1 for word in evidence_words if _matches_keyword(normalized_text, word)),
         5,
     )
 
     # 6. Dates and recognizable role history: 10 points.
     date_matches = re.findall(
-        r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[\s,.-]+\d{4}\b|\b(?:19|20)\d{2}\b",
+        r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)[\s,.-]+(?:19|20)\d{2}\b|\b(?:19|20)\d{2}\s*(?:-|–|—|to)\s*(?:present|current|ongoing|(?:19|20)\d{2})\b|\b(?:19|20)\d{2}\b",
         normalized_text,
     )
     dates_score = 6 if len(date_matches) >= 4 else 4 if len(date_matches) >= 2 else 2 if date_matches else 0
     if dates_score < 4:
-        recommendations.append("Include clear dates for education, internships, and experience.")
+        recommendations.append("Include clear date ranges (e.g. Month Year - Present) for education and experience.")
 
-    role_terms = ("intern", "engineer", "developer", "analyst", "designer", "manager", "trainee", "assistant")
-    role_score = 4 if any(re.search(rf"\b{role}\b", normalized_text) for role in role_terms) else 0
+    role_terms = (
+        "intern", "internship", "engineer", "developer", "analyst", "designer",
+        "manager", "trainee", "assistant", "lead", "architect", "researcher",
+        "specialist", "associate", "consultant", "contributor",
+    )
+    role_score = 4 if any(_matches_keyword(normalized_text, role) for role in role_terms) else 0
 
     # 7. Text readability for an ATS parser: 10 points.
     nonempty_lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -409,10 +468,10 @@ def calculate_resume_score(
         else 1
     )
     readability_score = 5
-    readability_score += 2 if "�" not in text else 0
+    readability_score += 2 if "" not in text and "\x00" not in text else 0
     readability_score += 3 if long_line_ratio <= 0.10 else 1 if long_line_ratio <= 0.25 else 0
     if readability_score < 8:
-        recommendations.append("Use a simple, single-column layout with short readable lines for better ATS parsing.")
+        recommendations.append("Use a clean, single-column layout without complex tables for optimal ATS parsing.")
 
     breakdown = {
         "Contact & links": contact_score,
@@ -438,9 +497,9 @@ def calculate_role_match(
 
     normalized_text = " ".join(text.lower().split())
 
-    # A skill is matched when any accepted keyword appears in the resume.
+    # A skill is matched when any accepted keyword appears in the resume respecting word boundaries.
     def contains_any(keywords: tuple[str, ...]) -> bool:
-        return any(keyword.lower() in normalized_text for keyword in keywords)
+        return any(_matches_keyword(normalized_text, kw) for kw in keywords)
 
     # Separate found and missing essential skills.
     matched_core = [
@@ -469,16 +528,16 @@ def calculate_role_match(
     )
 
     project_evidence_score = 0
-    if "project" in normalized_text:
+    if _matches_keyword(normalized_text, "project") or _matches_keyword(normalized_text, "projects"):
         project_evidence_score += 5
     if any(
-        word in normalized_text
-        for word in ("built", "developed", "implemented", "analyzed", "deployed")
+        _matches_keyword(normalized_text, word)
+        for word in ("built", "developed", "implemented", "analyzed", "deployed", "engineered", "designed")
     ):
         project_evidence_score += 5
     if any(
-        term in normalized_text
-        for term in ("accuracy", "improved", "reduced", "%", "users", "records")
+        _matches_keyword(normalized_text, term) or term in normalized_text
+        for term in ("accuracy", "improved", "reduced", "%", "users", "records", "latency", "scale")
     ):
         project_evidence_score += 5
 
@@ -505,13 +564,13 @@ def calculate_role_match(
     advice.append(profile["project_advice"])
     if project_evidence_score < 10:
         advice.append(
-            "Explain what you personally built, the technical decision you made, "
-            "and the result of the project."
+            "Explain what you personally built, the technical decisions you made, "
+            "and the measurable outcome of the project."
         )
     if project_evidence_score < 15:
         advice.append(
             "Add truthful measurable evidence such as accuracy, records analyzed, "
-            "users served, performance improved, or time saved."
+            "users served, latency improved, or time saved."
         )
     if role_alignment_score == 0:
         advice.append(
