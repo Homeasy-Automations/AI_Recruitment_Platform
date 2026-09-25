@@ -2,8 +2,8 @@ name: Keep Render Backend Alive
 
 on:
   schedule:
-    # Runs every 12 minutes (Render sleeps after 15 minutes of inactivity)
-    - cron: '*/12 * * * *'
+    # Runs every 10 minutes (Render sleeps after 15 mins of inactivity)
+    - cron: '*/10 * * * *'
   workflow_dispatch: # Allows manual trigger from the GitHub Actions UI to test anytime
 
 jobs:
@@ -12,17 +12,38 @@ jobs:
     steps:
       - name: Ping Backend Server
         env:
-          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL }}
+          RENDER_BACKEND_URL: ${{ secrets.RENDER_BACKEND_URL || secrets.BACKEND_URL }}
         run: |
-          # If secret is set in GitHub Repository Secrets, use it. Otherwise replace below:
-          TARGET_URL="${RENDER_BACKEND_URL:-https://your-render-backend-url.onrender.com}"
+          TARGET="${RENDER_BACKEND_URL}"
           
-          echo "Pinging: ${TARGET_URL}/health"
-          RESPONSE_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 60 "${TARGET_URL}/health")
-          echo "HTTP Status Code: ${RESPONSE_CODE}"
-          
-          if [ "$RESPONSE_CODE" -ge 200 ] && [ "$RESPONSE_CODE" -lt 400 ]; then
-            echo "Success: Render backend is awake and responding."
+          # Check if secret was provided
+          if [ -z "$TARGET" ]; then
+            echo "ERROR: Neither RENDER_BACKEND_URL nor BACKEND_URL secret is set in GitHub Repository Secrets!"
+            echo "Please go to Repo Settings -> Secrets and variables -> Actions -> Repository Secrets and add RENDER_BACKEND_URL."
+            exit 1
+          fi
+
+          # Strip trailing slash if present
+          TARGET="${TARGET%/}"
+
+          # Ensure URL starts with https:// or http://
+          if [[ ! "$TARGET" =~ ^https?:// ]]; then
+            TARGET="https://${TARGET}"
+          fi
+
+          ENDPOINT="${TARGET}/health"
+          echo "Pinging backend health endpoint..."
+
+          # Curl with follow-redirects (-L), show errors (-S), and output response details
+          RESPONSE=$(curl -sSL -w "\nHTTP_STATUS:%{http_code}" --max-time 60 "$ENDPOINT")
+          STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | cut -d':' -f2)
+          BODY=$(echo "$RESPONSE" | grep -v "HTTP_STATUS")
+
+          echo "Response Status Code: $STATUS"
+          echo "Response Body: $BODY"
+
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 400 ]; then
+            echo "SUCCESS: Render backend is awake and healthy!"
           else
-            echo "Warning: Received status code ${RESPONSE_CODE}. If the server was sleeping, this ping initiated its wake-up."
+            echo "WARNING: Backend responded with status $STATUS. (If it was sleeping, it has received the wake-up request)."
           fi
