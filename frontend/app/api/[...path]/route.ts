@@ -126,8 +126,6 @@ async function forwardRequest(request: Request, context: RouteParameters) {
   );
 }
 
-// Allow up to 60 seconds for cold start / wake up before Vercel times out
-export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
