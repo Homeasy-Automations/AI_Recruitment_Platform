@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { BrandMark } from "../ui/brand";
@@ -94,9 +94,17 @@ export default function StudentAccessPage() {
   >({});
   const [submitting, setSubmitting] = useState(false);
 
-  function openDashboard(student: { id: number; name: string }) {
-    window.sessionStorage.setItem("studentId", String(student.id));
-    window.sessionStorage.setItem("studentName", student.name);
+  // Pre-warm the dashboard route bundle for instant, smooth navigation
+  useEffect(() => {
+    router.prefetch("/student/dashboard");
+  }, [router]);
+
+  function openDashboard(student: { id: number; name: string; [key: string]: unknown }) {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem("studentId", String(student.id));
+      window.sessionStorage.setItem("studentName", student.name || "");
+      window.sessionStorage.setItem("studentProfile", JSON.stringify(student));
+    }
     router.push(`/student/dashboard?student_id=${student.id}`);
   }
 

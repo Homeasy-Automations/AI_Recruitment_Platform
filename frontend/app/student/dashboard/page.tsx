@@ -109,8 +109,25 @@ type CompanyInterviewResult = MockInterviewResult & {
 function StudentDashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [studentId, setStudentId] = useState<number | null>(null);
-  const [student, setStudent] = useState<Student | null>(null);
+  const [studentId, setStudentId] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const stored = window.sessionStorage.getItem("studentId");
+    return stored ? Number(stored) : null;
+  });
+
+  // Optimistically load cached profile for instantaneous, zero-flicker transitions
+  const [student, setStudent] = useState<Student | null>(() => {
+    if (typeof window === "undefined") return null;
+    const stored = window.sessionStorage.getItem("studentProfile");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed.id === "number") return parsed;
+      } catch {}
+    }
+    return null;
+  });
+
   const [jobs, setJobs] = useState<Job[]>([]);
   const [applications, setApplications] = useState<ApplicationResult[]>([]);
   const [mockInterviewResult, setMockInterviewResult] =
@@ -120,10 +137,20 @@ function StudentDashboardContent() {
   >([]);
   const [selectedCompanyInterviewResult, setSelectedCompanyInterviewResult] =
     useState<CompanyInterviewResult | null>(null);
-  const [backendStatus, setBackendStatus] = useState("checking...");
+  const [backendStatus, setBackendStatus] = useState("ok");
   const [pageMessage, setPageMessage] = useState("");
 
-  const [targetRole, setTargetRole] = useState("");
+  const [targetRole, setTargetRole] = useState(() => {
+    if (typeof window === "undefined") return "";
+    const stored = window.sessionStorage.getItem("studentProfile");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        return parsed?.target_role || "";
+      } catch {}
+    }
+    return "";
+  });
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [resumeResult, setResumeResult] = useState<ResumeResult | null>(null);
   const [resumeMessage, setResumeMessage] = useState("");
@@ -213,39 +240,33 @@ function StudentDashboardContent() {
     let active = true;
 
     async function initialize() {
-      // A query-string navigation can reuse this component. Clear the previous
-      // profile before loading so its data and actions are never shown for the new ID.
-      await Promise.resolve();
       if (!active) return;
       setStudentId(resolvedStudentId);
-      setStudent(null);
-      setJobs([]);
-      setApplications([]);
-      setMockInterviewResult(null);
-      setCompanyInterviewResults([]);
-      setSelectedCompanyInterviewResult(null);
-      setTargetRole("");
+
+      // Keep optimistic student if already loaded for this ID, otherwise null
+      setStudent((prev) => (prev?.id === resolvedStudentId ? prev : null));
       setResumeFile(null);
       setResumeResult(null);
       setResumeMessage("");
       setPageMessage("");
-      setBackendStatus("checking...");
 
-      try {
-        await checkBackendHealth();
-        if (!active) return;
-        setBackendStatus("ok");
-      } catch (error) {
-        if (!active) return;
-        setBackendStatus("not connected");
-        setPageMessage(
-          error instanceof Error
-            ? error.message
-            : "The backend health check failed.",
-        );
-        return;
-      }
+      // Non-blocking background health check so dashboard data is never delayed
+      checkBackendHealth()
+        .then(() => {
+          if (active) setBackendStatus("ok");
+        })
+        .catch((error) => {
+          if (active) {
+            setBackendStatus("not connected");
+            setPageMessage(
+              error instanceof Error
+                ? error.message
+                : "The backend health check failed.",
+            );
+          }
+        });
 
+      // Load live dashboard data immediately in parallel
       try {
         const loadedStudent = await loadDashboard(
           resolvedStudentId,
@@ -254,6 +275,10 @@ function StudentDashboardContent() {
         if (!active) return;
         window.sessionStorage.setItem("studentId", String(loadedStudent.id));
         window.sessionStorage.setItem("studentName", loadedStudent.name);
+        window.sessionStorage.setItem(
+          "studentProfile",
+          JSON.stringify(loadedStudent),
+        );
       } catch (error) {
         if (!active || (error instanceof Error && error.name === "AbortError")) {
           return;
@@ -368,6 +393,7 @@ function StudentDashboardContent() {
   function signOut() {
     window.sessionStorage.removeItem("studentId");
     window.sessionStorage.removeItem("studentName");
+    window.sessionStorage.removeItem("studentProfile");
     router.push("/student");
   }
 

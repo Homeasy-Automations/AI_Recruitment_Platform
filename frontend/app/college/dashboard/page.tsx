@@ -68,18 +68,17 @@ export default function CollegeDashboardPage() {
 
       setIdentity(savedIdentity);
 
-      try {
-        await checkBackendHealth();
-        setBackendStatus("ok");
-      } catch (error) {
-        setBackendStatus("not connected");
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "The backend health check failed.",
-        );
-        return;
-      }
+      // Non-blocking health check in background
+      checkBackendHealth()
+        .then(() => setBackendStatus("ok"))
+        .catch((error) => {
+          setBackendStatus("not connected");
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "The backend health check failed.",
+          );
+        });
 
       try {
         const collegeResponse = await fetch(`${API_URL}/college/options`);

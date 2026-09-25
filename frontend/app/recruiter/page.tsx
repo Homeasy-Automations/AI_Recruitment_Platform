@@ -149,19 +149,19 @@ export default function RecruiterPage() {
   // Confirm that the backend is available when this page opens.
   useEffect(() => {
     async function loadPage() {
-      try {
-        await checkBackendHealth();
-        setBackendStatus("ok");
-      } catch (error) {
-        setBackendStatus("not connected");
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : "The backend health check failed.",
-        );
-        return;
-      }
+      // Non-blocking health check in background
+      checkBackendHealth()
+        .then(() => setBackendStatus("ok"))
+        .catch((error) => {
+          setBackendStatus("not connected");
+          setMessage(
+            error instanceof Error
+              ? error.message
+              : "The backend health check failed.",
+          );
+        });
 
+      // Load jobs immediately without waiting for health check
       try {
         await loadJobs();
       } catch (error) {
